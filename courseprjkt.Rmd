@@ -1,0 +1,307 @@
+---
+title: "Classe Prediction"
+output: html_document
+---
+
+
+#### **Introduction**
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In the dataset provided,
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg)
+
+Read more: [Weight Lifting Exercises Dataset](http://groupware.les.inf.puc-rio.br/har#ixzz3dQ4Zwn7x)
+
+Youtube Video of the experiment is also available at https://www.youtube.com/watch?v=meNf1b1yY0Y
+
+The goal of the project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.
+
+#### **Exploratory Analysis**
+
+```{r, echo=FALSE,message = FALSE,eval=TRUE}
+library(caret)
+library(lattice)
+library(ggplot2)
+library(rpart)
+library(randomForest)
+library(rattle)
+```
+
+**data** is the **training set** that is dowloaded from the course project site.
+
+
+```{r, echo=TRUE,message = FALSE,eval=TRUE}
+set.seed(0)
+data <- read.csv("pml-training.csv",na.strings = c("NA", ""))
+```
+
+Initial exploratory analysis of roll_belt colored by classe gives us 
+
+```{r, echo=TRUE,message = FALSE,eval=TRUE}
+ggplot(data, aes(x=X, y= roll_belt )) + geom_point(aes(color = classe))
+```
+
+We notice two levels of roll_belt data for the same classe. To further understand the difference in the data, we split them based on the users
+
+```{r, echo=TRUE,message = FALSE,eval=TRUE}
+ggplot(data, aes(x=X, y= roll_belt )) + geom_point(aes(color = user_name))
+```
+
+We now clearly distinguish the difference in the roll_belt data based on users. Each user performs the activity differently and this can be see in the sensor data. Hence collection of a lot of sensor data is requried to predict the correct activity and not just one is enough.
+
+
+#### **Data Cleaning and Training set allocation**
+
+The project provides two data sets
+
+- Training set
+- Testing set
+
+The machine learning algorithm that is buit will be using the training set to predict the testing data. We further split the current training set as training and validation set. The algorithm is buit on the new training set and validated with our validation set
+
+**data** is the **training set** that is dowloaded from the course project site. we split the data into training and testing(which is the validation set) by **classe variable** in 60-40%
+
+
+```{r, echo=TRUE,message = FALSE,eval=TRUE}
+inTrain = createDataPartition(y=data$classe, p=0.6, list=FALSE)
+
+training = data[inTrain,]
+testing = data[-inTrain,]
+
+```
+
+If we look at the structure of  training data, we notice a lot of NA's for a lot of variables. The training data set have 160 variables and 11776 rows of data. To speed up our machine learning alogorithm, we need to clean the data set by removing the NA variables
+
+```{r, echo=TRUE,message = FALSE}
+str(training)
+```
+
+We first identify the amount of NA's in the training dataset.
+```{r, echo=TRUE,message = FALSE}
+na_train = sapply(training, function(x) {sum(is.na(x))})
+table(na_train)
+```
+
+If $Sum > 0$, there are more than 1 NA's in the variable. From table function output, we clearly distinguish two groups
+
+- Columns with zero NA's have a $Sum = 0$
+- Columns with all NA's have a $Sum = 11518$
+
+We then choose only those columns which have a $Sum = 0$. We also exclude the first 7 columns as they do not contribute any data for the machine learning algorithm.
+
+```{r, echo=TRUE,message = FALSE}
+good_columns = (names(na_train[na_train==0]))
+
+training = training[, names(training) %in% good_columns]
+training = training[,-c(1:7)]
+```
+
+#### **Model Selection**
+
+There are multiple machine learning models available that can predict the data set accurately. We will choose our model based on the accuracy and computational time.
+
+We will be testing the following two models to the current data
+
+- Predicting with trees using rpart
+- Prediction with trees using randomForest
+
+Since the computational time is high due to higher variable count and data set, we will use parallel computing to expidete the training algorithm
+```{r, echo=TRUE,message = FALSE}
+library(doParallel)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+```
+
+We will also be using cross validation with **repeated cv** method that uses 10 fold and 10 repeats for the training data set to get an unbiased estimate of the test set error.
+
+This will used in the train function in caret pacakge with trainControl parameter
+
+```{r, echo=TRUE,message = FALSE}
+fitControl <- trainControl(## 10-fold CV
+  method = "repeatedcv",
+  number = 10,
+  ## repeated ten times
+  repeats = 10)
+```
+
+
+##### **Predicting with trees using rpart**
+
+We have used 10 fold and 10 repeat cross valiation for our current training set data. rpart method is used to create a single prediction tree.
+
+```{r, echo=TRUE,message = FALSE,eval =FALSE}
+model_rpart = train(classe~., method="rpart", data=training,trControl = fitControl)
+```
+
+![Graphical representation of the tree](C:\Users\varoon.shankar\Desktop\Practical Machine Learning\Rpart.png)
+
+
+**Output of model_rpart is**
+```
+CART 
+
+11776 samples
+   52 predictor
+    5 classes: 'A', 'B', 'C', 'D', 'E' 
+
+No pre-processing
+Resampling: Cross-Validated (10 fold, repeated 10 times) 
+
+Summary of sample sizes: 10599, 10599, 10597, 10599, 10598, 10599, ... 
+
+Resampling results across tuning parameters:
+
+  cp          Accuracy   Kappa       Accuracy SD  Kappa SD  
+  0.03334124  0.5053238  0.35403917  0.01531608   0.02051850
+  0.06126404  0.4038033  0.18890208  0.05601898   0.09479561
+  0.11556716  0.3184252  0.05229872  0.03874004   0.05941591
+
+Accuracy was used to select the optimal model using  the largest value.
+The final value used for the model was cp = 0.03334124. 
+```
+**The accuracy of the rpart for the training set is ~50%.**
+
+We then test our rpart model on the validation data. We still get 49% accuracy with 33% Kappa. The current model is defintely bad and compares to even random selection accuracy. 
+
+```{r, echo=TRUE,message = FALSE,eval =FALSE}
+confusionMatrix(testing$classe,predict(model_rpart,testing))
+```
+```
+Confusion Matrix and Statistics
+
+          Reference
+Prediction    A    B    C    D    E
+         A 1982   42  174    0   34
+         B  640  518  360    0    0
+         C  651   40  677    0    0
+         D  553  239  494    0    0
+         E  206  189  362    0  685
+
+Overall Statistics
+                                          
+               Accuracy : 0.4922          
+                 95% CI : (0.4811, 0.5034)
+    No Information Rate : 0.5139          
+    P-Value [Acc > NIR] : 0.9999          
+                                          
+                  Kappa : 0.3368          
+ Mcnemar's Test P-Value : NA              
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            0.4916  0.50389  0.32753       NA  0.95271
+Specificity            0.9345  0.85333  0.88043   0.8361  0.89378
+Pos Pred Value         0.8880  0.34124  0.49488       NA  0.47503
+Neg Pred Value         0.6348  0.91941  0.78543       NA  0.99469
+Prevalence             0.5139  0.13102  0.26345   0.0000  0.09164
+Detection Rate         0.2526  0.06602  0.08629   0.0000  0.08731
+Detection Prevalence   0.2845  0.19347  0.17436   0.1639  0.18379
+Balanced Accuracy      0.7130  0.67861  0.60398       NA  0.92325
+```
+
+##### **Predicting with trees using randomForest**
+
+We have used 10 fold and 10 repeat cross valiation for our current training set data. Cross validation is not required for random forest method as it is estimated internally using bootstrap sample. We still do it since, we are comparing with rpart model for which cross validation was done.
+
+rf method is used to create multiple trees and predicts the outcome by voting individual tree results. rf method is usually time consuming and we need to tweak the paraments to estimate the correct one.
+
+If we use carat package for training, it tests multiple **ntree** (Number of trees to grow) and **mtry** (Number of variables randomly sampled as candidates at each split) and chooses the best model automatically.
+
+```{r, echo=TRUE,message = FALSE,eval =FALSE}
+model_rf = train(classe~., method="rf", data=training, prox=TRUEsdo.trace =100,trControl = fitControl)
+```
+
+For our current model we notice OOB error (out of bag) is minimum for $ntree = 200$ which is 0.83%
+```
+ntree      OOB      1      2      3      4      5
+  100:   1.02%  0.15%  2.02%  1.07%  2.02%  0.37%
+  200:   0.83%  0.15%  1.45%  0.88%  1.87%  0.28%
+  300:   0.92%  0.12%  1.67%  0.88%  2.07%  0.37%
+  400:   0.85%  0.06%  1.54%  0.88%  1.92%  0.37%
+  500:   0.84%  0.06%  1.40%  0.88%  2.02%  0.37%
+```
+  
+  
+  
+  **For our current model we notice Accuracy is highest for $mtry = 2$ which is 99%**
+
+  
+```
+  Random Forest 
+
+11776 samples
+   52 predictor
+    5 classes: 'A', 'B', 'C', 'D', 'E' 
+
+No pre-processing
+Resampling: Cross-Validated (10 fold, repeated 10 times) 
+
+Summary of sample sizes: 10598, 10598, 10599, 10598, 10599, 10598, ... 
+
+Resampling results across tuning parameters:
+
+  mtry  Accuracy   Kappa      Accuracy SD  Kappa SD   
+   2    0.9903195  0.9877525  0.002502226  0.003167007
+  27    0.9894281  0.9866255  0.002615775  0.003309730
+  52    0.9801891  0.9749381  0.003626607  0.004588097
+
+Accuracy was used to select the optimal model using  the largest value.
+The final value used for the model was mtry = 2. 
+```
+**We then test our randomForest model on the validation data. We get a good accuracy of 99% on the validation data.**
+
+```{r, echo=TRUE,message = FALSE,eval =FALSE}
+confusionMatrix(testing$classe,predict(model_rf,testing))
+```
+
+```
+Confusion Matrix and Statistics
+
+          Reference
+Prediction    A    B    C    D    E
+         A 2224    5    3    0    0
+         B    8 1499   11    0    0
+         C    0    6 1361    1    0
+         D    0    0   31 1253    2
+         E    0    0    7    4 1431
+
+Overall Statistics
+                                          
+               Accuracy : 0.9901          
+                 95% CI : (0.9876, 0.9921)
+    No Information Rate : 0.2845          
+    P-Value [Acc > NIR] : < 2.2e-16       
+                                          
+                  Kappa : 0.9874          
+ Mcnemar's Test P-Value : NA              
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            0.9964   0.9927   0.9632   0.9960   0.9986
+Specificity            0.9986   0.9970   0.9989   0.9950   0.9983
+Pos Pred Value         0.9964   0.9875   0.9949   0.9743   0.9924
+Neg Pred Value         0.9986   0.9983   0.9920   0.9992   0.9997
+Prevalence             0.2845   0.1925   0.1801   0.1603   0.1826
+Detection Rate         0.2835   0.1911   0.1735   0.1597   0.1824
+Detection Prevalence   0.2845   0.1935   0.1744   0.1639   0.1838
+Balanced Accuracy      0.9975   0.9949   0.9811   0.9955   0.9984
+```
+
+To understand the importance of variables used in the randomForest algorithm, we plot the varImp variable. We notice out of 52 variable, only 20 of them have >30% importance.
+
+![Variable of Importance](C:\Users\varoon.shankar\Desktop\Practical Machine Learning\varImp.png)
+
+
+##### **Conclusion**
+
+randomForest(Accuracy = 99%) method predicts better than rpart method(Accuracy = 49%) on the validation set. But the computation time of randomForest method is definitely higher than rpart. Following modication to the algorithm in the caret package can defintely decrease the computation time
+
+- $ntree = 200$
+- $mtry = 2$
+
